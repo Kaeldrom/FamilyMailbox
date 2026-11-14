@@ -205,6 +205,7 @@ function scan.bank()
     end
     me.bank = counts
     me.bankSeen = time()
+    me.bankFromSyndicator = nil
 end
 
 function scan.mail()
@@ -224,6 +225,7 @@ function scan.mail()
     me.mail = counts
     me.mailMoney = money
     me.mailSeen = time()
+    me.mailFromSyndicator = nil
 end
 
 function scan.equipped()
@@ -600,6 +602,62 @@ function FM.MigrateRegional(group)
     end
 end
 
+-- Syndicator (installed alongside Baganator) has usually been recording every character
+-- for much longer than we have. Borrow its data for anything we haven't seen ourselves:
+-- characters not logged into since installing, and banks/mailboxes not opened yet.
+local function SyndicatorCounts(list, into)
+    for _, slot in pairs(list or {}) do
+        if type(slot) == "table" and slot.itemID and slot.itemCount then
+            into[slot.itemID] = (into[slot.itemID] or 0) + slot.itemCount
+            Remember(slot.itemID, slot.itemLink)
+        end
+    end
+    return into
+end
+
+function FM.ImportSyndicator()
+    local S = SYNDICATOR_DATA
+    if type(S) ~= "table" or type(S.Characters) ~= "table" then return 0 end
+    local imported = 0
+    for _, d in pairs(S.Characters) do
+        local det = type(d) == "table" and d.details
+        if det and det.character and (det.realmNormalized or det.realm) then
+            local group = det.realmNormalized or det.realm
+            local key = det.character .. "-" .. NormRealm(group)
+            local c = db.chars[key]
+            if not c then
+                c = { bags = {}, bank = {}, mail = {}, equipped = {}, fromSyndicator = true }
+                db.chars[key] = c
+                imported = imported + 1
+            end
+            c.full = c.full or det.character
+            c.name = c.name or det.character:match("^(%S+)") or det.character
+            c.realm = c.realm or group
+            c.class = c.class or det.className
+            c.faction = c.faction or det.faction
+            if c.fromSyndicator then
+                -- never logged in with Family Mailbox: Syndicator is all we know
+                c.money = d.money or c.money
+                local bags = {}
+                for _, bag in pairs(d.bags or {}) do SyndicatorCounts(bag, bags) end
+                c.bags = bags
+                c.equipped = SyndicatorCounts(d.equipped, {})
+            end
+            if not c.bankSeen then
+                local bank = {}
+                for _, tab in pairs(d.bankTabs or {}) do SyndicatorCounts(tab.slots, bank) end
+                for _, bag in pairs(d.bank or {}) do SyndicatorCounts(bag, bank) end
+                if next(bank) then c.bank, c.bankFromSyndicator = bank, true end
+            end
+            if not c.mailSeen and type(d.mail) == "table" then
+                local mail = SyndicatorCounts(d.mail, {})
+                if next(mail) then c.mail, c.mailFromSyndicator = mail, true end
+            end
+        end
+    end
+    return imported
+end
+
 local function OnLogin()
     FamilyMailboxDB = FamilyMailboxDB or {}
     db = FamilyMailboxDB
@@ -616,6 +674,8 @@ local function OnLogin()
     db.chars[myKey] = db.chars[myKey] or { bags = {}, bank = {}, mail = {}, equipped = {} }
     me = db.chars[myKey]
     me.name, me.full, me.realm = first, full, group
+    me.fromSyndicator = nil
+    FM.ImportSyndicator()
 
     BuildBagLists()
     for _, ev in ipairs(EVENTS) do pcall(frame.RegisterEvent, frame, ev) end

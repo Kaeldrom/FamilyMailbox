@@ -295,7 +295,7 @@ local function FillCharacters()
         local c = db.chars[key]
         local tag = key == FM.MyKey() and (GREEN .. " (you)|r") or ""
         local mail = c.unreadMail and (GOLD .. "  mail waiting|r") or ""
-        Set(b, key, CharLabel(key) .. tag, GREY .. "Lv " .. (c.level or "?") .. "  |r" .. Money(c.money) .. mail)
+        Set(b, key, CharLabel(key) .. tag, GREY .. (c.level and ("Lv " .. c.level .. "  ") or "") .. "|r" .. Money(c.money) .. mail)
     end
     for j = i + 1, #win.charButtons do win.charButtons[j]:Hide(); win.charButtons[j].key = nil end
     win.gold:SetText("Family gold: " .. Money(FM.TotalMoney()))
@@ -383,8 +383,10 @@ function UI.Refresh()
 
     local c = state.selected and db.chars[state.selected]
     if c then
-        local bank = c.bankSeen and ("bank " .. Ago(c.bankSeen)) or "bank never opened"
-        local mail = c.mailSeen and ("mailbox " .. Ago(c.mailSeen)) or "mailbox never opened"
+        local bank = c.bankSeen and ("bank " .. Ago(c.bankSeen))
+            or (c.bankFromSyndicator and "bank from Syndicator") or "bank never opened"
+        local mail = c.mailSeen and ("mailbox " .. Ago(c.mailSeen))
+            or (c.mailFromSyndicator and "mailbox from Syndicator") or "mailbox never opened"
         local waiting = c.unreadMail and (GOLD .. "  Unread mail waiting: open a mailbox to see it.|r") or ""
         win.seen:SetText(GREY .. "Last seen: " .. bank .. ", " .. mail .. "|r" .. waiting)
     else

@@ -339,5 +339,43 @@ lua2.execute("FamilyMailbox.UI.Toggle(); local b = FamilyMailboxFrame.locButtons
 check("Mail button filters window", lua2.eval("FamilyMailbox.UI.State().loc") == "mail" and len(lua2.eval("FamilyMailbox.UI.Results()")) == 2)
 check("panel button shows full name", "Tahu Hoardhoof" in lua2.eval("FamilyMailboxMailPanel.buttons[1]:GetText()"))
 
+
+# ---- Syndicator import: characters/banks we haven't seen ourselves -------------
+lua3 = L.LuaRuntime(unpack_returned_tuples=True)
+lua3.execute(MOCK)
+lua3.execute("""
+RegionalUniqueNamesEnabled = function() return true end
+Enum.GameRule = { PvPRuleset = 1 }
+C_GameRules = { IsGameRuleActive = function(r) return r == 1 end }
+PLAYER = { name = "Gromir", realm = "Crypmaghar", class = "MAGE", level = 25, money = 840 }
+function UnitNameUnmodified() return "Gromir", "Crypmaghar" end
+CONTAINERS = {}; EQUIP = {}
+local function it(id, n) return { itemID = id, itemCount = n, itemLink = LINKS[id] } end
+SYNDICATOR_DATA = { Characters = {
+  ['Gromir Crypmaghar-PvP'] = { details = { character = 'Gromir Crypmaghar', realmNormalized = 'PvP', className = 'MAGE', faction = 'Horde' },
+     money = 840, bags = { { it(2589, 3) } }, bankTabs = { { slots = { it(7000, 4), {}, it(7000, 1) } } }, mail = {}, equipped = {} },
+  ['Aldric Lastlight-PvP'] = { details = { character = 'Aldric Lastlight', realmNormalized = 'PvP', className = 'WARRIOR', faction = 'Horde' },
+     money = 7833, bags = { { it(4306, 9) } }, bankTabs = {}, mail = { it(12345, 1) }, equipped = { it(6948, 1) } },
+  ['Broken'] = { },
+} }
+FamilyMailboxDB = { chars = { ['Gromir Crypmaghar-PvP'] = { name = 'Gromir', full = 'Gromir Crypmaghar', realm = 'PvP', bags = {}, bank = {}, mail = {}, equipped = {} } } }
+""")
+for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+    lua3.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", open(os.path.join(ROOT, f), encoding="utf-8").read())
+lua3.eval("function() FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, 'PLAYER_LOGIN') end")()
+check("syndicator: new character imported", lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'] ~= nil"))
+check("syndicator: their bags/mail/worn/gold", lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'].bags[4306]") == 9
+      and lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'].mail[12345]") == 1
+      and lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'].equipped[6948]") == 1
+      and lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'].money") == 7833)
+check("syndicator: my unopened bank filled", lua3.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].bank[7000]") == 5)
+check("syndicator: my live bags not overwritten", lua3.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].bags[2589]") is None)
+check("syndicator: postable", lua3.eval("#FamilyMailbox.Postable()") == 1)
+lua3.execute("put(6, 1, 7000, 2)")
+lua3.eval("function() FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, 'BANKFRAME_OPENED') end")()
+lua3.execute("run_timers()")
+check("own bank scan replaces imported", lua3.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].bank[7000]") == 2
+      and lua3.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].bankFromSyndicator") is None)
+
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

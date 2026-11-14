@@ -35,6 +35,10 @@ Log in once on each character, and open the bank and mailbox once, so Family Mai
 
 `pip install lupa`, then run `python tests/test_familymailbox.py`. This runs the addon against a mock WoW API in real Lua 5.1.
 
+## Using Syndicator's data
+
+If you also use Baganator or Syndicator, Family Mailbox imports what they've already recorded, so every character and bank shows up straight away.
+
 ## Why is a character's mail empty?
 
 The game only lets addons read a mailbox while you're standing at an open one. Open a mailbox once on each character, and Family Mailbox remembers what's inside from then on. Until then, the character list still shows **mail waiting** when there's unread mail. Anything you post from one family character to another shows up straight away.
