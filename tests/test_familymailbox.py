@@ -291,5 +291,53 @@ run("SlashCmdList.FAMILYMAILBOX('help')")
 run("FamilyMailbox.UI.Refresh()")
 check("window survives forgotten char", lua.eval("FamilyMailbox.UI.IsShown()"))
 
+
+# ---- WoW Forever: surnames instead of realms (regression for 1.0.0) --------
+lua2 = L.LuaRuntime(unpack_returned_tuples=True)
+lua2.execute(MOCK)
+lua2.execute("""
+RegionalUniqueNamesEnabled = function() return true end
+Enum.GameRule = { PvPRuleset = 1, RPRuleset = 2, HardcoreRuleset = 3 }
+C_GameRules = { IsGameRuleActive = function(r) return r == 1 end }
+PLAYER = { name = "Gromir", realm = "Crypmaghar", class = "MAGE", level = 60, money = 900000 }
+function UnitNameUnmodified() return "Gromir", "Crypmaghar" end
+function HasNewMail() return NEWMAIL end
+NEWMAIL = true
+CONTAINERS = {}; EQUIP = {}
+put(0, 1, 4306, 7)
+-- what 1.0.0 saved: surname filed as if it were the realm
+FamilyMailboxDB = { items = {}, queue = { ['Tahu-Hoardhoof'] = { [2589] = true } }, settings = {}, chars = {
+  ['Gromir-Crypmaghar'] = { name = 'Gromir', realm = 'Crypmaghar', class = 'MAGE', bags = {}, bank = { [7000] = 2 }, mail = {}, equipped = {} },
+  ['Tahu-Hoardhoof'] = { name = 'Tahu', realm = 'Hoardhoof', class = 'MAGE', level = 12, bags = { [2589] = 1 }, bank = {}, mail = {}, equipped = {} },
+} }
+""")
+for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+    src = open(os.path.join(ROOT, f), encoding="utf-8").read()
+    lua2.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", src)
+ev2 = lua2.eval("function(e, ...) FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, e, ...) end")
+ev2("PLAYER_LOGIN")
+check("regional key = full name + ruleset", lua2.eval("FamilyMailbox.MyKey()") == "Gromir Crypmaghar-PvP")
+check("old records re-filed", lua2.eval("FamilyMailboxDB.chars['Gromir-Crypmaghar']") is None and lua2.eval("FamilyMailboxDB.chars['Tahu Hoardhoof-PvP'] ~= nil"))
+check("old bank data kept", lua2.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].bank[7000]") == 2)
+check("queue re-filed", lua2.eval("FamilyMailbox.IsQueued('Tahu Hoardhoof-PvP', 2589)"))
+check("Tahu is postable from Gromir", lua2.eval("#FamilyMailbox.Postable()") == 1)
+check("find by full name", lua2.eval("FamilyMailbox.FindCharacter('tahu hoardhoof')") == "Tahu Hoardhoof-PvP")
+check("find by unique first name", lua2.eval("FamilyMailbox.FindCharacter('Tahu')") == "Tahu Hoardhoof-PvP")
+check("unread mail flag", lua2.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].unreadMail") is True)
+lua2.execute("put(0, 2, 2589, 4)")
+lua2.execute("FamilyMailbox.PrepareMail('Tahu Hoardhoof-PvP')")
+check("mail addressed to full name", lua2.eval("SendMailNameEditBox:GetText()") == "Tahu Hoardhoof")
+lua2.execute("SendMail('Tahu Hoardhoof', 's', '')"); ev2("MAIL_SEND_SUCCESS")
+check("posted mail tracked for Tahu", lua2.eval("FamilyMailboxDB.chars['Tahu Hoardhoof-PvP'].mail[2589]") == 4)
+# mailbox view
+lua2.execute("INBOX = { { sender='AH', money=0, cod=0, items={ {12345, 1} } } }; NEWMAIL = false")
+ev2("MAIL_SHOW"); ev2("MAIL_INBOX_UPDATE"); ev2("UPDATE_PENDING_MAIL"); lua2.execute("run_timers()")
+check("Gromir mailbox recorded", lua2.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].mail[12345]") == 1)
+check("unread flag clears", lua2.eval("FamilyMailboxDB.chars['Gromir Crypmaghar-PvP'].unreadMail") is False)
+check("search by location", len(lua2.eval("FamilyMailbox.Search('', nil, 'mail')")) == 2 and len(lua2.eval("FamilyMailbox.Search('', 'Gromir Crypmaghar-PvP', 'mail')")) == 1)
+lua2.execute("FamilyMailbox.UI.Toggle(); local b = FamilyMailboxFrame.locButtons[4]; b:GetScript('OnClick')(b)")
+check("Mail button filters window", lua2.eval("FamilyMailbox.UI.State().loc") == "mail" and len(lua2.eval("FamilyMailbox.UI.Results()")) == 2)
+check("panel button shows full name", "Tahu Hoardhoof" in lua2.eval("FamilyMailboxMailPanel.buttons[1]:GetText()"))
+
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

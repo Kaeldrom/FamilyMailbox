@@ -40,7 +40,34 @@ local function NormRealm(r)
     return ((r or ""):gsub("[%s%-']", ""))
 end
 
+-- WoW Forever has no realms: names are unique per region and every character has
+-- a surname ("Gromir Crypmaghar"). Characters are grouped by ruleset (PvP, PvE...)
+-- instead, and mail is addressed to the full name.
+local function Regional()
+    return RegionalUniqueNamesEnabled ~= nil and RegionalUniqueNamesEnabled() == true
+end
+
+local function Ruleset()
+    local G = C_GameRules
+    local R = Enum and Enum.GameRule
+    if not (G and G.IsGameRuleActive and R) then return "Regional" end
+    local function On(rule) return rule ~= nil and G.IsGameRuleActive(rule) end
+    if On(R.HardcoreRuleset) then return "HC" end
+    if On(R.PvPRuleset) and On(R.RPRuleset) then return "RPPvP" end
+    if On(R.PvPRuleset) then return "PvP" end
+    if On(R.RPRuleset) then return "RP" end
+    return "PvE"
+end
+
+local function SurnameSep()
+    local c = Constants and Constants.CharacterNameSeparatorConsts
+    return (c and c.CHARACTERNAME_SURNAME_SEPARATOR) or " "
+end
+
+local myGroup
+
 local function MyRealm()
+    if myGroup then return myGroup end
     local r = GetNormalizedRealmName and GetNormalizedRealmName()
     if not r or r == "" then r = NormRealm(GetRealmName and GetRealmName()) end
     return r
@@ -50,15 +77,35 @@ function FM.Key(name, realm)
     return name .. "-" .. NormRealm(realm or MyRealm())
 end
 
--- "Tahu" or "Tahu-Realm" (any case) -> key of a known character, or nil
+-- who am I? first name, full (mail) name, group (realm or ruleset), key
+function FM.Identity()
+    if Regional() then
+        local first, surname = (UnitNameUnmodified or UnitName)("player")
+        local full = (surname and surname ~= "") and (first .. SurnameSep() .. surname) or first
+        local group = Ruleset()
+        return first, full, group, full .. "-" .. group
+    end
+    local name, realm = UnitFullName("player")
+    if not realm or realm == "" then realm = MyRealm() end
+    return name, name, realm, FM.Key(name, realm)
+end
+
+function FM.FullName(c) return c.full or c.name end
+
+-- "Gromir Crypmaghar", "gromir", "Tahu-Realm" -> key of a known character in my group, or nil
 function FM.FindCharacter(text)
     if not text or text == "" or IsSecret(text) then return nil end
-    local name, realm = text:match("^([^%-]+)%-(.+)$")
+    local name, realm = text:match("^(.-)%-([^%-]+)$")
     name = (name or text):lower()
     realm = NormRealm(realm or MyRealm()):lower()
+    local byFirst, firstCount
     for key, c in pairs(db.chars) do
-        if c.name:lower() == name and NormRealm(c.realm):lower() == realm then return key end
+        if NormRealm(c.realm):lower() == realm then
+            if FM.FullName(c):lower() == name then return key end
+            if c.name:lower() == name then byFirst, firstCount = key, (firstCount or 0) + 1 end
+        end
     end
+    if firstCount == 1 then return byFirst end
 end
 
 function FM.MyKey() return myKey end
@@ -200,6 +247,8 @@ function scan.info()
     me.faction = UnitFactionGroup("player")
     me.level = UnitLevel("player")
     me.money = GetMoney()
+    -- the contents can only be read at a mailbox, but "is anything waiting?" works anywhere
+    if HasNewMail then me.unreadMail = HasNewMail() and true or false end
 end
 
 local pending, flushQueued = {}, false
@@ -249,10 +298,11 @@ function FM.Postable()
     return list
 end
 
-function FM.Count(key, id)
+-- onlyLoc ("bags", "bank", "mail", "equipped") counts just that place
+function FM.Count(key, id, onlyLoc)
     local c, total, where = db.chars[key], 0, {}
     for _, loc in ipairs(FM.LOCATIONS) do
-        local n = c[loc] and c[loc][id] or 0
+        local n = (not onlyLoc or onlyLoc == loc) and c[loc] and c[loc][id] or 0
         where[loc] = n
         total = total + n
     end
@@ -268,15 +318,17 @@ function FM.WhereText(where)
     return table.concat(parts, ", ")
 end
 
--- Search everything. onlyKey limits to one character. Returns a sorted list of
--- { id, name, total, holders = { {key, total, where}, ... } }
-function FM.Search(text, onlyKey)
+-- Search everything. onlyKey limits to one character, onlyLoc to one place.
+-- Returns a sorted list of { id, name, total, holders = { {key, total, where}, ... } }
+function FM.Search(text, onlyKey, onlyLoc)
     text = (text or ""):lower()
     local ids = {}
     for key, c in pairs(db.chars) do
         if not onlyKey or onlyKey == key then
             for _, loc in ipairs(FM.LOCATIONS) do
-                for id in pairs(c[loc] or {}) do ids[id] = true end
+                if not onlyLoc or onlyLoc == loc then
+                    for id in pairs(c[loc] or {}) do ids[id] = true end
+                end
             end
         end
     end
@@ -287,7 +339,7 @@ function FM.Search(text, onlyKey)
             local r = { id = id, name = name, total = 0, holders = {} }
             for _, key in ipairs(FM.Characters()) do
                 if not onlyKey or onlyKey == key then
-                    local n, where = FM.Count(key, id)
+                    local n, where = FM.Count(key, id, onlyLoc)
                     if n > 0 then
                         r.total = r.total + n
                         r.holders[#r.holders + 1] = { key = key, total = n, where = where }
@@ -369,8 +421,8 @@ function FM.PrepareMail(key)
     if not c then return 0, 0, 0 end
     if MailFrameTab_OnClick then pcall(MailFrameTab_OnClick, nil, 2) end
     if SendMailNameEditBox then
-        local to = c.name
-        if NormRealm(c.realm) ~= MyRealm() then to = c.name .. "-" .. c.realm end
+        local to = FM.FullName(c)
+        if not Regional() and NormRealm(c.realm) ~= MyRealm() then to = to .. "-" .. c.realm end
         SendMailNameEditBox:SetText(to)
     end
 
@@ -523,8 +575,30 @@ FM.frame = frame
 local EVENTS = {
     "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
     "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "BANK_TABS_CHANGED",
-    "MAIL_SHOW", "MAIL_CLOSED", "MAIL_INBOX_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED",
+    "MAIL_SHOW", "MAIL_CLOSED", "MAIL_INBOX_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "UPDATE_PENDING_MAIL",
 }
+
+-- 1.0.0 filed Forever characters as "Name-Surname", as if the surname were a realm,
+-- so every character looked like it was on its own realm. Re-file them by full name + ruleset.
+function FM.MigrateRegional(group)
+    local moves = {}
+    for key, c in pairs(db.chars) do
+        if not c.full then moves[#moves + 1] = key end
+    end
+    for _, old in ipairs(moves) do
+        local c = db.chars[old]
+        db.chars[old] = nil
+        local surname = c.realm
+        c.full = (surname and surname ~= "" and NormRealm(surname) ~= NormRealm(group)) and (c.name .. SurnameSep() .. surname) or c.name
+        c.realm = group
+        local new = c.full .. "-" .. NormRealm(group)
+        if not db.chars[new] then db.chars[new] = c end
+        if db.queue[old] then
+            db.queue[new] = db.queue[new] or db.queue[old]
+            db.queue[old] = nil
+        end
+    end
+end
 
 local function OnLogin()
     FamilyMailboxDB = FamilyMailboxDB or {}
@@ -535,12 +609,13 @@ local function OnLogin()
     db.settings = db.settings or {}
     for k, v in pairs(DEFAULT_SETTINGS) do if db.settings[k] == nil then db.settings[k] = v end end
 
-    local name, realm = UnitFullName("player")
-    realm = (realm and realm ~= "") and realm or MyRealm()
-    myKey = FM.Key(name, realm)
+    local first, full, group, key = FM.Identity()
+    myGroup = NormRealm(group)
+    if Regional() then FM.MigrateRegional(group) end
+    myKey = key
     db.chars[myKey] = db.chars[myKey] or { bags = {}, bank = {}, mail = {}, equipped = {} }
     me = db.chars[myKey]
-    me.name, me.realm = name, realm
+    me.name, me.full, me.realm = first, full, group
 
     BuildBagLists()
     for _, ev in ipairs(EVENTS) do pcall(frame.RegisterEvent, frame, ev) end
@@ -568,7 +643,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "BAG_UPDATE_DELAYED" then
         FM.Dirty("bags")
         if bankOpen then FM.Dirty("bank") end
-    elseif event == "PLAYER_MONEY" or event == "PLAYER_LEVEL_UP" then
+    elseif event == "PLAYER_MONEY" or event == "PLAYER_LEVEL_UP" or event == "UPDATE_PENDING_MAIL" then
         FM.Dirty("info")
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         FM.Dirty("equipped")

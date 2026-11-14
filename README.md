@@ -2,7 +2,7 @@
 
 A World of Warcraft addon for accounts shared by a family, or for anyone with alts. It remembers what every character is carrying and helps you post things between them.
 
-- **One window for everyone** (`/fm`): pick a character, or "Everyone", then search. Each item shows who has it and where: bags, bank, mail or worn.
+- **One window for everyone** (`/fm`): pick a character, or "Everyone", then search. Use All / Bags / Bank / Mail / Worn to look in one place. Each item shows who has it and where: bags, bank, mail or worn.
 - **Tooltips**: hover any item to see "Family has 23" and which characters hold it.
 - **Gold**: each character's gold, plus the family total, including gold waiting in the mailbox.
 - **Post queue**: right-click an item and tick who it's for. At a mailbox, the **Send to family** panel addresses the letter and attaches everything queued for that character in one click. You still press Send yourself.
@@ -34,3 +34,7 @@ Log in once on each character, and open the bank and mailbox once, so Family Mai
 ## Tests
 
 `pip install lupa`, then run `python tests/test_familymailbox.py`. This runs the addon against a mock WoW API in real Lua 5.1.
+
+## Why is a character's mail empty?
+
+The game only lets addons read a mailbox while you're standing at an open one. Open a mailbox once on each character, and Family Mailbox remembers what's inside from then on. Until then, the character list still shows **mail waiting** when there's unread mail. Anything you post from one family character to another shows up straight away.

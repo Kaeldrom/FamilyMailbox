@@ -17,7 +17,7 @@ local ROWS = 11
 local ROW_H = 30
 local CHAR_ROWS = 12
 
-local state = { selected = nil, search = "", offset = 0, mode = "items" }
+local state = { selected = nil, search = "", offset = 0, mode = "items", loc = nil }
 local win, results
 
 ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ end
 
 local function CharLabel(key)
     local c = FM.DB().chars[key]
-    return ClassHex(c.class) .. c.name .. "|r"
+    return ClassHex(c.class) .. FM.FullName(c) .. "|r"
 end
 
 local function Text(parent, template)
@@ -176,7 +176,25 @@ local function BuildWindow()
 
     win.info = Text(win, "GameFontHighlightSmall")
     win.info:SetPoint("TOPLEFT", 214, -60)
-    win.info:SetWidth(470)
+    win.info:SetWidth(230)
+
+    -- where to look: everywhere, or just one place
+    win.locButtons = {}
+    local prev
+    for _, l in ipairs({ { nil, "All" }, { "bags", "Bags" }, { "bank", "Bank" }, { "mail", "Mail" }, { "equipped", "Worn" } }) do
+        local loc = l[1]
+        local b = Button(win, l[2], 46, function()
+            state.loc = loc
+            state.mode = "items"
+            state.offset = 0
+            UI.Refresh()
+        end)
+        b:SetHeight(18)
+        b.loc = loc
+        if prev then b:SetPoint("LEFT", prev, "RIGHT", 2, 0) else b:SetPoint("TOPRIGHT", win, "TOPRIGHT", -16 - 4 * 48, -56) end
+        prev = b
+        win.locButtons[#win.locButtons + 1] = b
+    end
 
     win.rows = {}
     for i = 1, ROWS do
@@ -230,12 +248,12 @@ local function BuildWindow()
     end)
 
     win.page = Text(win, "GameFontHighlightSmall")
-    win.page:SetPoint("BOTTOMRIGHT", -16, 14)
+    win.page:SetPoint("BOTTOMRIGHT", -16, 34)
     win.page:SetJustifyH("RIGHT")
 
     win.seen = Text(win, "GameFontHighlightSmall")
     win.seen:SetPoint("BOTTOMLEFT", 214, 14)
-    win.seen:SetWidth(330)
+    win.seen:SetWidth(420)
 
     win:SetScript("OnShow", function() UI.Refresh() end)
 end
@@ -276,7 +294,8 @@ local function FillCharacters()
         if not b then break end
         local c = db.chars[key]
         local tag = key == FM.MyKey() and (GREEN .. " (you)|r") or ""
-        Set(b, key, CharLabel(key) .. tag, GREY .. "Lv " .. (c.level or "?") .. "  |r" .. Money(c.money))
+        local mail = c.unreadMail and (GOLD .. "  mail waiting|r") or ""
+        Set(b, key, CharLabel(key) .. tag, GREY .. "Lv " .. (c.level or "?") .. "  |r" .. Money(c.money) .. mail)
     end
     for j = i + 1, #win.charButtons do win.charButtons[j]:Hide(); win.charButtons[j].key = nil end
     win.gold:SetText("Family gold: " .. Money(FM.TotalMoney()))
@@ -307,6 +326,9 @@ function UI.Refresh()
     local queued = 0
     for key in pairs(db.queue) do queued = queued + FM.QueueCount(key) end
     win.queueTab:SetText("To post (" .. queued .. ")")
+    for _, b in ipairs(win.locButtons) do
+        if state.mode == "items" and b.loc == state.loc then b:Disable() else b:Enable() end
+    end
 
     if state.mode == "queue" then
         results = QueueResults()
@@ -314,9 +336,10 @@ function UI.Refresh()
             and (GREY .. "Nothing waiting. Right-click any item in the Items list to post it to another character.|r")
             or (GREY .. "Visit a mailbox and press a name in the 'Send to family' panel. Click a row to take it off the list.|r"))
     else
-        results = FM.Search(state.search, state.selected)
+        results = FM.Search(state.search, state.selected, state.loc)
         local who = state.selected and CharLabel(state.selected) or "everyone"
-        win.info:SetText(GREY .. #results .. " different items for |r" .. who)
+        local where = state.loc and (" in " .. FM.LOCATION_LABEL[state.loc]) or ""
+        win.info:SetText(GREY .. #results .. " items" .. where .. " for |r" .. who)
     end
 
     state.offset = math.max(0, math.min(state.offset, math.max(0, #results - ROWS)))
@@ -361,8 +384,9 @@ function UI.Refresh()
     local c = state.selected and db.chars[state.selected]
     if c then
         local bank = c.bankSeen and ("bank " .. Ago(c.bankSeen)) or "bank never opened"
-        local mail = c.mailSeen and ("mailbox " .. Ago(c.mailSeen)) or "mailbox never checked"
-        win.seen:SetText(GREY .. "Last seen: " .. bank .. ", " .. mail .. "|r")
+        local mail = c.mailSeen and ("mailbox " .. Ago(c.mailSeen)) or "mailbox never opened"
+        local waiting = c.unreadMail and (GOLD .. "  Unread mail waiting: open a mailbox to see it.|r") or ""
+        win.seen:SetText(GREY .. "Last seen: " .. bank .. ", " .. mail .. "|r" .. waiting)
     else
         win.seen:SetText(GREY .. "Open the bank and mailbox once on each character to fill them in.|r")
     end
@@ -439,7 +463,7 @@ function UI.MailRefresh()
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", 10, y)
             local n = #(FM.QueuedInBags(key))
-            b:SetText(FM.DB().chars[key].name .. (n > 0 and ("  (" .. n .. " to post)") or ""))
+            b:SetText(FM.FullName(FM.DB().chars[key]) .. (n > 0 and ("  (" .. n .. " to post)") or ""))
             b:Show()
             y = y - 24
         end
