@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: |cffffd100Family Mailbox|r
+## Notes: See what every character on your account is carrying (bags, bank, mail, gear, gold) and post things between them.
+## Author: Kaeldrom
+## Version: 1.0.0
+## SavedVariables: FamilyMailboxDB
+## AddonCompartmentFunc: FamilyMailbox_Open
+## IconTexture: Interface\Icons\INV_Letter_15
+
+FamilyMailbox.lua
+FamilyMailbox_UI.lua
