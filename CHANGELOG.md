@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0 - 2026-11-15
+
+- **Post several items at once.** In the Items list, click items to pick them (a tick and gold highlight show what's picked), or Shift-click to pick a range. A bar appears at the bottom: **Post N to...** lets you choose a character, and every picked item goes on their post list in one go. **Pick all** picks everything in the current list (handy after a search), and **Clear** starts again. Picks are kept while you search, so you can pick herbs, search for ore and pick some of that too.
+- Right-click still posts a single item, as before.
+
 ## 1.2.0 - 2026-11-14
 
 - If Syndicator (part of Baganator) is installed, Family Mailbox imports what it has already recorded. That covers characters you haven't logged into since installing Family Mailbox, plus banks and mailboxes you haven't opened yet. Your own scans replace the imported data as soon as you open the bank or mailbox.

@@ -392,6 +392,18 @@ function FM.ToggleQueue(key, id)
     if FM.UI and FM.UI.Refresh then FM.UI.Refresh() end
 end
 
+-- queue several items for one character at once (multi-select)
+function FM.QueueMany(key, ids)
+    if not db.chars[key] then return 0 end
+    db.queue[key] = db.queue[key] or {}
+    local n = 0
+    for _, id in ipairs(ids) do
+        if not db.queue[key][id] then db.queue[key][id] = true; n = n + 1 end
+    end
+    if next(db.queue[key]) == nil then db.queue[key] = nil end
+    return n
+end
+
 function FM.QueueCount(key)
     local n = 0
     for _ in pairs(db.queue[key] or {}) do n = n + 1 end

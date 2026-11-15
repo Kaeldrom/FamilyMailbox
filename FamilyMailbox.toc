@@ -2,7 +2,7 @@
 ## Title: |cffffd100Family Mailbox|r
 ## Notes: See what every character on your account is carrying (bags, bank, mail, gear, gold) and post things between them.
 ## Author: Kaeldrom
-## Version: 1.2.0
+## Version: 1.3.0
 ## SavedVariables: FamilyMailboxDB
 ## OptionalDeps: Syndicator
 ## AddonCompartmentFunc: FamilyMailbox_Open

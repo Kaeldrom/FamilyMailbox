@@ -17,7 +17,7 @@ local ROWS = 11
 local ROW_H = 30
 local CHAR_ROWS = 12
 
-local state = { selected = nil, search = "", offset = 0, mode = "items", loc = nil }
+local state = { selected = nil, search = "", offset = 0, mode = "items", loc = nil, picked = {}, lastPick = nil }
 local win, results
 
 ---------------------------------------------------------------------------
@@ -205,6 +205,15 @@ local function BuildWindow()
         local hl = r:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, 0.08)
+        r.pickedBg = r:CreateTexture(nil, "BACKGROUND")
+        r.pickedBg:SetAllPoints()
+        r.pickedBg:SetColorTexture(1, 0.82, 0, 0.16)
+        r.pickedBg:Hide()
+        r.tick = r:CreateTexture(nil, "OVERLAY")
+        r.tick:SetSize(16, 16)
+        r.tick:SetPoint("BOTTOMLEFT", 16, 0)
+        r.tick:SetTexture("Interface\Buttons\UI-CheckBox-Check")
+        r.tick:Hide()
         r.icon = r:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(24, 24)
         r.icon:SetPoint("LEFT", 4, 0)
@@ -222,7 +231,12 @@ local function BuildWindow()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             local link = FM.ItemLink(self.id)
             if link then GameTooltip:SetHyperlink(link) else GameTooltip:SetItemByID(self.id) end
-            GameTooltip:AddLine(GREY .. "Right-click to choose who to post it to.|r")
+            if state.mode == "queue" then
+                GameTooltip:AddLine(GREY .. "Click to take it off the list.|r")
+            else
+                GameTooltip:AddLine(GREY .. "Click to pick it, Shift-click to pick a range, then 'Post to...' below.|r")
+                GameTooltip:AddLine(GREY .. "Right-click to choose who to post just this one to.|r")
+            end
             GameTooltip:Show()
         end)
         r:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -236,7 +250,8 @@ local function BuildWindow()
                 FM.ToggleQueue(self.recipient, self.id)
                 return
             end
-            if button == "RightButton" then UI.PostMenu(self, self.id) end
+            if button == "RightButton" then UI.PostMenu(self, self.id); return end
+            UI.Pick(self.index, IsShiftKeyDown and IsShiftKeyDown())
         end)
         win.rows[i] = r
     end
@@ -255,7 +270,80 @@ local function BuildWindow()
     win.seen:SetPoint("BOTTOMLEFT", 214, 14)
     win.seen:SetWidth(420)
 
+    -- multi-select bar: shows once something is picked
+    win.postPicked = Button(win, "Post to...", 130, function(self) UI.PostPickedMenu(self) end)
+    win.postPicked:SetPoint("BOTTOMRIGHT", -14, 8)
+    win.clearPicked = Button(win, "Clear", 60, function() UI.ClearPicks() end)
+    win.clearPicked:SetPoint("RIGHT", win.postPicked, "LEFT", -4, 0)
+    win.pickAll = Button(win, "Pick all", 70, function() UI.PickAll() end)
+    win.pickAll:SetPoint("RIGHT", win.clearPicked, "LEFT", -4, 0)
+    win.picked = Text(win, "GameFontNormalSmall")
+    win.picked:SetPoint("RIGHT", win.pickAll, "LEFT", -8, 0)
+
     win:SetScript("OnShow", function() UI.Refresh() end)
+end
+
+---------------------------------------------------------------------------
+-- multi-select: pick several items, post them all to one character
+---------------------------------------------------------------------------
+function UI.PickedIDs()
+    local ids = {}
+    for id in pairs(state.picked) do ids[#ids + 1] = id end
+    table.sort(ids)
+    return ids
+end
+
+function UI.Pick(index, range)
+    local res = index and results and results[index]
+    if not res then return end
+    if range and state.lastPick and results[state.lastPick] then
+        local a, b = math.min(state.lastPick, index), math.max(state.lastPick, index)
+        for i = a, b do state.picked[results[i].id] = true end
+    elseif state.picked[res.id] then
+        state.picked[res.id] = nil
+    else
+        state.picked[res.id] = true
+    end
+    state.lastPick = index
+    UI.Refresh()
+end
+
+function UI.PickAll()
+    for _, res in ipairs(results or {}) do state.picked[res.id] = true end
+    UI.Refresh()
+end
+
+function UI.ClearPicks()
+    state.picked = {}
+    state.lastPick = nil
+    UI.Refresh()
+end
+
+function UI.PostPicked(key)
+    local ids = UI.PickedIDs()
+    if #ids == 0 then return end
+    local n = FM.QueueMany(key, ids)
+    FM.Print(("%d item%s added to the post for %s. Visit a mailbox and press their name in 'Send to family'."):format(
+        #ids, #ids == 1 and "" or "s", FM.DB().chars[key].name) .. (n < #ids and (" (" .. (#ids - n) .. " were already on it.)") or ""))
+    state.picked = {}
+    state.lastPick = nil
+    UI.Refresh()
+end
+
+function UI.PostPickedMenu(owner)
+    local targets = FM.Postable()
+    if #targets == 0 then
+        FM.Print("No other characters on this realm yet. Log in on them once so Family Mailbox knows them.")
+        return
+    end
+    local count = #UI.PickedIDs()
+    local shown = ContextMenu(owner, function(_, root)
+        root:CreateTitle("Post " .. count .. " item" .. (count == 1 and "" or "s") .. " to...")
+        for _, key in ipairs(targets) do
+            root:CreateButton(CharLabel(key), function() UI.PostPicked(key) end)
+        end
+    end)
+    if not shown then UI.PostPicked(targets[1]) end
 end
 
 -- "Post to..." menu for an item
@@ -347,6 +435,9 @@ function UI.Refresh()
         local res = results[state.offset + i]
         if res then
             r.id = res.id
+            r.index = state.offset + i
+            local picked = state.mode == "items" and state.picked[res.id]
+            if picked then r.pickedBg:Show(); r.tick:Show() else r.pickedBg:Hide(); r.tick:Hide() end
             r.recipient = res.recipient
             r.icon:SetTexture(FM.ItemIcon(res.id))
             r.name:SetText(FM.ItemLink(res.id) or res.name)
@@ -370,9 +461,22 @@ function UI.Refresh()
             end
             r:Show()
         else
-            r.id, r.recipient = nil, nil
+            r.id, r.recipient, r.index = nil, nil, nil
             r:Hide()
         end
+    end
+
+    local nPicked = #UI.PickedIDs()
+    local showBar = state.mode == "items" and nPicked > 0
+    for _, b in ipairs({ win.postPicked, win.clearPicked, win.pickAll, win.picked }) do
+        if showBar then b:Show() else b:Hide() end
+    end
+    if showBar then
+        win.postPicked:SetText("Post " .. nPicked .. " to...")
+        win.picked:SetText(GOLD .. nPicked .. " picked|r")
+        win.seen:Hide()
+    else
+        win.seen:Show()
     end
 
     if #results > ROWS then
