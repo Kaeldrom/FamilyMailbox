@@ -7,6 +7,7 @@ A World of Warcraft addon for accounts shared by a family, or for anyone with al
 - **Gold**: each character's gold, plus the family total, including gold waiting in the mailbox.
 - **Post queue**: right-click an item and tick who it's for. At a mailbox, the **Send to family** panel addresses the letter and attaches everything queued for that character in one click. You still press Send yourself.
 - **Mail in transit**: items you post to a family character show up in their mail right away, before they log in.
+- **Hand-me-downs** (`/fm hand`): gear and profession materials one character could pass to another (see below).
 
 ## Install
 
@@ -21,6 +22,7 @@ Log in once on each character, and open the bank and mailbox once, so Family Mai
 | Command | What it does |
 |---|---|
 | `/fm` | Open or close the window |
+| `/fm hand` | Hand-me-downs |
 | `/fm tooltip` | Family counts on tooltips on/off |
 | `/fm mailpanel` | The mailbox panel on/off |
 | `/fm forget Name` | Forget a deleted or transferred character |
@@ -33,7 +35,7 @@ Log in once on each character, and open the bank and mailbox once, so Family Mai
 
 ## Tests
 
-`pip install lupa`, then run `python tests/test_familymailbox.py`. This runs the addon against a mock WoW API in real Lua 5.1.
+`pip install lupa`, then run `python tests/test_familymailbox.py` and `python tests/test_handmedowns.py`. This runs the addon against a mock WoW API in real Lua 5.1.
 
 ## Using Syndicator's data
 

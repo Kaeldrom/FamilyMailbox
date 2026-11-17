@@ -5,6 +5,8 @@ ignore:
   - README.md
   - .github
   - .gitignore
+  - logo.png
+  - CURSEFORGE.md
 
 manual-changelog:
   filename: CHANGELOG.md
