@@ -193,7 +193,8 @@ end
 local scan = {}
 
 function scan.bags()
-    me.bags, _, me.bagsBound = ScanContainers(BAG_IDS)
+    local counts, _, bound = ScanContainers(BAG_IDS)
+    me.bags, me.bagsBound = counts, bound
 end
 
 local bankRetried = false
