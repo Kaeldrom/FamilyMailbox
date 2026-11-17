@@ -132,7 +132,7 @@ def check(name, cond):
         print("FAIL:", name)
 
 lua.execute(MOCK)
-for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+for f in ("FamilyMailbox.lua", "FamilyMailbox_HandMeDown.lua", "FamilyMailbox_UI.lua"):
     src = open(os.path.join(ROOT, f), encoding="utf-8").read()
     lua.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", src)
 
@@ -142,6 +142,7 @@ run = lua.execute
 # ---- first login as Dad ---------------------------------------------------
 run("put(0, 1, 2589, 20); put(0, 2, 6948, 1, true); put(1, 3, 4306, 10); put(-2, 1, 2589, 5)")
 ev("PLAYER_LOGIN")
+run("timers = {}")  # the hand-me-down login note
 key = lua.eval("FamilyMailbox.MyKey()")
 check("key uses normalized realm", key == "Dad-MirageRaceway")
 check("bags scanned incl keyring", lua.eval("FamilyMailboxDB.chars['Dad-MirageRaceway'].bags[2589]") == 25)
@@ -188,7 +189,7 @@ CONTAINERS = {}; EQUIP = {}
 put(0, 1, 2589, 2)
 """)
 lua.execute("FamilyMailboxDB = ...", lua.eval("FamilyMailboxDB"))
-for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+for f in ("FamilyMailbox.lua", "FamilyMailbox_HandMeDown.lua", "FamilyMailbox_UI.lua"):
     src = open(os.path.join(ROOT, f), encoding="utf-8").read()
     lua.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", src)
 ev = lua.eval("function(e, ...) FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, e, ...) end")
@@ -342,7 +343,7 @@ FamilyMailboxDB = { items = {}, queue = { ['Tahu-Hoardhoof'] = { [2589] = true }
   ['Tahu-Hoardhoof'] = { name = 'Tahu', realm = 'Hoardhoof', class = 'MAGE', level = 12, bags = { [2589] = 1 }, bank = {}, mail = {}, equipped = {} },
 } }
 """)
-for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+for f in ("FamilyMailbox.lua", "FamilyMailbox_HandMeDown.lua", "FamilyMailbox_UI.lua"):
     src = open(os.path.join(ROOT, f), encoding="utf-8").read()
     lua2.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", src)
 ev2 = lua2.eval("function(e, ...) FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, e, ...) end")
@@ -391,7 +392,7 @@ SYNDICATOR_DATA = { Characters = {
 } }
 FamilyMailboxDB = { chars = { ['Gromir Crypmaghar-PvP'] = { name = 'Gromir', full = 'Gromir Crypmaghar', realm = 'PvP', bags = {}, bank = {}, mail = {}, equipped = {} } } }
 """)
-for f in ("FamilyMailbox.lua", "FamilyMailbox_UI.lua"):
+for f in ("FamilyMailbox.lua", "FamilyMailbox_HandMeDown.lua", "FamilyMailbox_UI.lua"):
     lua3.execute("local f = assert(loadstring(...)); f('FamilyMailbox')", open(os.path.join(ROOT, f), encoding="utf-8").read())
 lua3.eval("function() FamilyMailbox.frame:GetScript('OnEvent')(FamilyMailbox.frame, 'PLAYER_LOGIN') end")()
 check("syndicator: new character imported", lua3.eval("FamilyMailboxDB.chars['Aldric Lastlight-PvP'] ~= nil"))

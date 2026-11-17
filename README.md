@@ -42,3 +42,12 @@ If you also use Baganator or Syndicator, Family Mailbox imports what they've alr
 ## Why is a character's mail empty?
 
 The game only lets addons read a mailbox while you're standing at an open one. Open a mailbox once on each character, and Family Mailbox remembers what's inside from then on. Until then, the character list still shows **mail waiting** when there's unread mail. Anything you post from one family character to another shows up straight away.
+
+## Hand-me-downs
+
+The **Hand-me-downs** tab (or `/fm hand`) lists what your characters could pass to each other:
+
+- **Gear**: not soulbound, the right kind for the other character's class and level, with stats that suit them, and better than what they're wearing (item level), or ready within a few levels.
+- **Materials** for their main professions: Gromir has Light Leather and Aldric is a leatherworker, so it's suggested for Aldric. Cooking, Fishing, First Aid and gathering professions aren't counted, and nothing is suggested if the holder uses it themselves.
+
+Click a suggestion (or **Post all**) to add it to the post list, then post it from whoever has it at a mailbox. Professions are learnt when each character logs in, so log in on each once.

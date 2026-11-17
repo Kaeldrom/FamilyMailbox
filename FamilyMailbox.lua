@@ -19,7 +19,7 @@ FamilyMailbox = FM
 FM.LOCATIONS = { "bags", "bank", "mail", "equipped" }
 FM.LOCATION_LABEL = { bags = "bags", bank = "bank", mail = "mail", equipped = "worn" }
 
-local DEFAULT_SETTINGS = { tooltip = true, mailPanel = true }
+local DEFAULT_SETTINGS = { tooltip = true, mailPanel = true, handNote = true }
 
 local db, me, myKey
 local bankOpen = false
@@ -170,9 +170,10 @@ local function IsIn(list, v)
     for _, x in ipairs(list) do if x == v then return true end end
 end
 
--- returns counts {[itemID]=n} and the number of slots looked at
+-- returns counts {[itemID]=n}, the number of slots looked at, and the items that are
+-- soulbound everywhere they were seen ({[itemID]=true}: those can't be posted)
 local function ScanContainers(ids)
-    local counts, slots = {}, 0
+    local counts, slots, bound, free = {}, 0, {}, {}
     for _, bag in ipairs(ids) do
         local n = C_Container.GetContainerNumSlots(bag) or 0
         slots = slots + n
@@ -181,22 +182,24 @@ local function ScanContainers(ids)
             if info and info.itemID and not IsSecret(info.itemID) then
                 counts[info.itemID] = (counts[info.itemID] or 0) + (info.stackCount or 1)
                 Remember(info.itemID, info.hyperlink)
+                if info.isBound then bound[info.itemID] = true else free[info.itemID] = true end
             end
         end
     end
-    return counts, slots
+    for id in pairs(free) do bound[id] = nil end
+    return counts, slots, bound
 end
 
 local scan = {}
 
 function scan.bags()
-    me.bags = ScanContainers(BAG_IDS)
+    me.bags, _, me.bagsBound = ScanContainers(BAG_IDS)
 end
 
 local bankRetried = false
 function scan.bank()
     if not bankOpen then return end
-    local counts, slots = ScanContainers(BANK_IDS)
+    local counts, slots, bound = ScanContainers(BANK_IDS)
     if slots == 0 and not bankRetried then
         -- bank tabs can take a moment to arrive; don't wipe what we knew
         bankRetried = true
@@ -204,6 +207,7 @@ function scan.bank()
         return
     end
     me.bank = counts
+    me.bankBound = bound
     me.bankSeen = time()
     me.bankFromSyndicator = nil
 end
@@ -251,6 +255,20 @@ function scan.info()
     me.money = GetMoney()
     -- the contents can only be read at a mailbox, but "is anything waiting?" works anywhere
     if HasNewMail then me.unreadMail = HasNewMail() and true or false end
+    -- the two main professions (Cooking, Fishing and First Aid are separate and not wanted here)
+    if GetProfessions and GetProfessionInfo then
+        local profs = {}
+        local p1, p2 = GetProfessions()
+        for _, index in ipairs({ p1 or false, p2 or false }) do
+            if index then
+                local name, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(index)
+                if name and not IsSecret(name) then
+                    profs[#profs + 1] = { name = name, rank = rank, max = maxRank, line = skillLine }
+                end
+            end
+        end
+        me.profs = profs
+    end
 end
 
 local pending, flushQueued = {}, false
@@ -560,6 +578,8 @@ local function Slash(msg)
     elseif cmd == "mailpanel" then
         db.settings.mailPanel = not db.settings.mailPanel
         Print("Mailbox panel " .. (db.settings.mailPanel and "on." or "off."))
+    elseif cmd == "hand" or cmd == "handmedowns" or cmd == "hmd" then
+        FM.UI.ShowHand()
     elseif cmd == "forget" then
         local key = FM.FindCharacter(rest)
         if not key then Print("No character called '" .. rest .. "'.")
@@ -575,6 +595,7 @@ local function Slash(msg)
         Print("/fm tooltip - family counts on item tooltips on/off")
         Print("/fm mailpanel - the 'Send to family' panel at mailboxes on/off")
         Print("/fm forget Name - forget a deleted or transferred character")
+        Print("/fm hand - hand-me-downs: gear and materials your other characters could use")
     end
 end
 
@@ -588,6 +609,7 @@ FM.frame = frame
 
 local EVENTS = {
     "BAG_UPDATE", "BAG_UPDATE_DELAYED", "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
+    "SKILL_LINES_CHANGED", "GET_ITEM_INFO_RECEIVED",
     "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "BANK_TABS_CHANGED",
     "MAIL_SHOW", "MAIL_CLOSED", "MAIL_INBOX_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "UPDATE_PENDING_MAIL",
 }
@@ -617,14 +639,25 @@ end
 -- Syndicator (installed alongside Baganator) has usually been recording every character
 -- for much longer than we have. Borrow its data for anything we haven't seen ourselves:
 -- characters not logged into since installing, and banks/mailboxes not opened yet.
-local function SyndicatorCounts(list, into)
+local function SyndicatorCounts(list, into, bound)
     for _, slot in pairs(list or {}) do
         if type(slot) == "table" and slot.itemID and slot.itemCount then
             into[slot.itemID] = (into[slot.itemID] or 0) + slot.itemCount
             Remember(slot.itemID, slot.itemLink)
+            if bound then
+                if slot.isBound then
+                    if bound[slot.itemID] == nil then bound[slot.itemID] = true end
+                else
+                    bound[slot.itemID] = false
+                end
+            end
         end
     end
     return into
+end
+local function OnlyTrue(t)
+    for k, v in pairs(t) do if not v then t[k] = nil end end
+    return t
 end
 
 function FM.ImportSyndicator()
@@ -650,16 +683,16 @@ function FM.ImportSyndicator()
             if c.fromSyndicator then
                 -- never logged in with Family Mailbox: Syndicator is all we know
                 c.money = d.money or c.money
-                local bags = {}
-                for _, bag in pairs(d.bags or {}) do SyndicatorCounts(bag, bags) end
-                c.bags = bags
+                local bags, bound = {}, {}
+                for _, bag in pairs(d.bags or {}) do SyndicatorCounts(bag, bags, bound) end
+                c.bags, c.bagsBound = bags, OnlyTrue(bound)
                 c.equipped = SyndicatorCounts(d.equipped, {})
             end
             if not c.bankSeen then
-                local bank = {}
-                for _, tab in pairs(d.bankTabs or {}) do SyndicatorCounts(tab.slots, bank) end
-                for _, bag in pairs(d.bank or {}) do SyndicatorCounts(bag, bank) end
-                if next(bank) then c.bank, c.bankFromSyndicator = bank, true end
+                local bank, bound = {}, {}
+                for _, tab in pairs(d.bankTabs or {}) do SyndicatorCounts(tab.slots, bank, bound) end
+                for _, bag in pairs(d.bank or {}) do SyndicatorCounts(bag, bank, bound) end
+                if next(bank) then c.bank, c.bankFromSyndicator, c.bankBound = bank, true, OnlyTrue(bound) end
             end
             if not c.mailSeen and type(d.mail) == "table" then
                 local mail = SyndicatorCounts(d.mail, {})
@@ -700,6 +733,7 @@ local function OnLogin()
 
     scan.info(); scan.bags(); scan.equipped()
     me.updated = time()
+    if FM.HandLoginNote then C_Timer.After(8, FM.HandLoginNote) end
     if FM.UI and FM.UI.Init then FM.UI.Init() end
 end
 
@@ -715,8 +749,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "BAG_UPDATE_DELAYED" then
         FM.Dirty("bags")
         if bankOpen then FM.Dirty("bank") end
-    elseif event == "PLAYER_MONEY" or event == "PLAYER_LEVEL_UP" or event == "UPDATE_PENDING_MAIL" then
+    elseif event == "PLAYER_MONEY" or event == "PLAYER_LEVEL_UP" or event == "UPDATE_PENDING_MAIL"
+        or event == "SKILL_LINES_CHANGED" then
         FM.Dirty("info")
+    elseif event == "GET_ITEM_INFO_RECEIVED" then
+        if FM.HandItemArrived then FM.HandItemArrived(arg1) end
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         FM.Dirty("equipped")
     elseif event == "BANKFRAME_OPENED" then

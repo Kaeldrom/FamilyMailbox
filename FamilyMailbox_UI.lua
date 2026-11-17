@@ -155,7 +155,7 @@ local function BuildWindow()
 
     -- right: search, tabs and the list -------------------------------------
     local search = CreateFrame("EditBox", "FamilyMailboxSearch", win, "InputBoxTemplate")
-    search:SetSize(200, 22)
+    search:SetSize(150, 22)
     search:SetPoint("TOPLEFT", 214, -32)
     search:SetAutoFocus(false)
     search:SetScript("OnTextChanged", function(self)
@@ -171,8 +171,10 @@ local function BuildWindow()
 
     win.itemsTab = Button(win, "Items", 80, function() state.mode = "items"; state.offset = 0; UI.Refresh() end)
     win.itemsTab:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    win.queueTab = Button(win, "To post", 110, function() state.mode = "queue"; state.offset = 0; UI.Refresh() end)
+    win.queueTab = Button(win, "To post", 100, function() state.mode = "queue"; state.offset = 0; UI.Refresh() end)
     win.queueTab:SetPoint("LEFT", win.itemsTab, "RIGHT", 4, 0)
+    win.handTab = Button(win, "Hand-me-downs", 124, function() state.mode = "hand"; state.offset = 0; UI.Refresh() end)
+    win.handTab:SetPoint("LEFT", win.queueTab, "RIGHT", 4, 0)
 
     win.info = Text(win, "GameFontHighlightSmall")
     win.info:SetPoint("TOPLEFT", 214, -60)
@@ -231,7 +233,14 @@ local function BuildWindow()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             local link = FM.ItemLink(self.id)
             if link then GameTooltip:SetHyperlink(link) else GameTooltip:SetItemByID(self.id) end
-            if state.mode == "queue" then
+            if state.mode == "hand" and self.hand then
+                local h = self.hand
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(GOLD .. "For " .. CharLabel(h.recipient) .. "|r")
+                GameTooltip:AddLine(h.text, 1, 1, 1, true)
+                GameTooltip:AddLine(GREY .. "Click to " .. (FM.IsQueued(h.recipient, h.id) and "take it off" or "put it on")
+                    .. " the post list. Post it from " .. FM.DB().chars[h.holder].name .. " at a mailbox.|r", 1, 1, 1, true)
+            elseif state.mode == "queue" then
                 GameTooltip:AddLine(GREY .. "Click to take it off the list.|r")
             else
                 GameTooltip:AddLine(GREY .. "Click to pick it, Shift-click to pick a range, then 'Post to...' below.|r")
@@ -246,8 +255,9 @@ local function BuildWindow()
                 ChatEdit_InsertLink(FM.ItemLink(self.id))
                 return
             end
-            if state.mode == "queue" and self.recipient then
+            if (state.mode == "queue" or state.mode == "hand") and self.recipient then
                 FM.ToggleQueue(self.recipient, self.id)
+                UI.Refresh()
                 return
             end
             if button == "RightButton" then UI.PostMenu(self, self.id); return end
@@ -279,6 +289,11 @@ local function BuildWindow()
     win.pickAll:SetPoint("RIGHT", win.clearPicked, "LEFT", -4, 0)
     win.picked = Text(win, "GameFontNormalSmall")
     win.picked:SetPoint("RIGHT", win.pickAll, "LEFT", -8, 0)
+
+    -- hand-me-downs: put everything shown on the post list
+    win.handAll = Button(win, "Post all", 120, function() UI.PostAllHand() end)
+    win.handAll:SetPoint("BOTTOMRIGHT", -14, 8)
+    win.handAll:Hide()
 
     win:SetScript("OnShow", function() UI.Refresh() end)
 end
@@ -389,6 +404,33 @@ local function FillCharacters()
     win.gold:SetText("Family gold: " .. Money(FM.TotalMoney()))
 end
 
+function UI.PostAllHand()
+    local n = 0
+    for _, res in ipairs(results or {}) do
+        if res.recipient and not FM.IsQueued(res.recipient, res.id) then
+            FM.ToggleQueue(res.recipient, res.id)
+            n = n + 1
+        end
+    end
+    FM.Print(n == 0 and "They're all on the post list already."
+        or (n .. " hand-me-down" .. (n == 1 and "" or "s") .. " added to the post list. Post them from whoever has them, at a mailbox."))
+    UI.Refresh()
+end
+
+function UI.ShowHand()
+    if not win then BuildWindow() end
+    state.mode = "hand"
+    state.offset = 0
+    win:Show()
+    UI.Refresh()
+end
+
+local function HandResults()
+    local list = FM.HandMeDowns(state.selected)
+    for _, s in ipairs(list) do s.name = FM.ItemName(s.id); s.hand = s end
+    return list
+end
+
 local function QueueResults()
     local list, db = {}, FM.DB()
     for _, key in ipairs(FM.Characters()) do
@@ -418,7 +460,13 @@ function UI.Refresh()
         if state.mode == "items" and b.loc == state.loc then b:Disable() else b:Enable() end
     end
 
-    if state.mode == "queue" then
+    if state.mode == "hand" then
+        results = HandResults()
+        local who = state.selected and CharLabel(state.selected) or "everyone"
+        win.info:SetText(#results == 0
+            and (GREY .. "No hand-me-downs for |r" .. who .. GREY .. " right now.|r")
+            or (GREY .. #results .. " for |r" .. who .. GREY .. ". Click to put one on the post list.|r"))
+    elseif state.mode == "queue" then
         results = QueueResults()
         win.info:SetText(#results == 0
             and (GREY .. "Nothing waiting. Right-click any item in the Items list to post it to another character.|r")
@@ -439,9 +487,18 @@ function UI.Refresh()
             local picked = state.mode == "items" and state.picked[res.id]
             if picked then r.pickedBg:Show(); r.tick:Show() else r.pickedBg:Hide(); r.tick:Hide() end
             r.recipient = res.recipient
+            r.hand = res.hand
             r.icon:SetTexture(FM.ItemIcon(res.id))
             r.name:SetText(FM.ItemLink(res.id) or res.name)
-            if state.mode == "queue" then
+            if state.mode == "hand" then
+                local queued = FM.IsQueued(res.recipient, res.id)
+                r.name:SetText((FM.ItemLink(res.id) or res.name) .. GREY .. "  ->  |r" .. CharLabel(res.recipient)
+                    .. (queued and (GREEN .. "  (on the post list)|r") or ""))
+                if queued then r.pickedBg:Show(); r.tick:Show() else r.pickedBg:Hide(); r.tick:Hide() end
+                r.count:SetText(res.count > 1 and res.count or "")
+                r.where:SetText(GREY .. "from " .. FM.DB().chars[res.holder].name .. "'s " .. FM.LOCATION_LABEL[res.loc]
+                    .. "  -  |r" .. res.text)
+            elseif state.mode == "queue" then
                 r.count:SetText("")
                 local have = (res.mine or 0) > 0 and ("you have " .. res.mine .. " in your bags") or "not in your bags"
                 r.where:SetText("for " .. CharLabel(res.recipient) .. GREY .. "  -  " .. have .. "|r")
@@ -461,11 +518,17 @@ function UI.Refresh()
             end
             r:Show()
         else
-            r.id, r.recipient, r.index = nil, nil, nil
+            r.id, r.recipient, r.index, r.hand = nil, nil, nil, nil
             r:Hide()
         end
     end
 
+    if state.mode == "hand" and #results > 0 then
+        win.handAll:SetText("Post all " .. #results); win.handAll:Show()
+    else
+        win.handAll:Hide()
+    end
+    win.handTab:SetText(state.mode == "hand" and (GOLD .. "Hand-me-downs|r") or "Hand-me-downs")
     local nPicked = #UI.PickedIDs()
     local showBar = state.mode == "items" and nPicked > 0
     for _, b in ipairs({ win.postPicked, win.clearPicked, win.pickAll, win.picked }) do
